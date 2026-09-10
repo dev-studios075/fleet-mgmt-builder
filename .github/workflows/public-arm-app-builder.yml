@@ -1,4 +1,4 @@
-name: Public ARM64 App Builder
+name: Public Android App Builder
 
 on:
   repository_dispatch:
@@ -6,13 +6,13 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: 'Git ref (branch/tag) to build'
+        description: "Git ref (branch/tag) to build"
         required: true
-        default: 'main'
+        default: "main"
       environment:
-        description: 'Target Environment'
+        description: "Target Environment"
         required: true
-        default: 'dev'
+        default: "dev"
         type: choice
         options:
           - dev
@@ -20,13 +20,23 @@ on:
 
 jobs:
   build-and-upload:
-    name: Build & Upload Android APK on ARM64
-    runs-on: ubuntu-24.04-arm
+    name: Build & Upload Android APK
+    runs-on: ubuntu-latest
     timeout-minutes: 45
 
     steps:
       - name: Checkout public builder repo
         uses: actions/checkout@v4
+
+      - name: Free Runner Disk Space
+        run: |
+          echo "Disk usage before cleanup:"
+          df -h /
+          sudo rm -rf /usr/local/lib/android/sdk/ndk/25.*
+          sudo rm -rf /usr/local/lib/android/sdk/ndk/26.*
+          sudo rm -rf /usr/share/dotnet /usr/local/share/boost /opt/ghc
+          echo "Disk usage after cleanup:"
+          df -h /
 
       - name: Clone private app repository
         env:
@@ -60,9 +70,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: './app-repo/package-lock.json'
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: "./app-repo/package-lock.json"
 
       - name: Install Node Dependencies
         working-directory: ./app-repo
@@ -95,21 +105,37 @@ jobs:
       - name: Setup Java JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
-          java-version: '17'
+          distribution: "zulu"
+          java-version: "17"
 
-      - name: Setup Android SDK on ARM64
-        uses: android-actions/setup-android@v3
+      - name: Cache Android NDK
+        uses: actions/cache@v4
+        id: ndk-cache
+        with:
+          path: /usr/local/lib/android/sdk/ndk/27.1.12297006
+          key: ndk-v2-27.1.12297006-${{ runner.os }}
 
-      - name: Install Android NDK 27 on ARM64
+      - name: Install Android NDK
+        if: steps.ndk-cache.outputs.cache-hit != "true"
         env:
           ANDROID_NDK_VERSION: 27.1.12297006
         run: |
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
           if [ -d "${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" ]; then
             echo "Android NDK ${ANDROID_NDK_VERSION} is already available."
             exit 0
           fi
-          echo "y" | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --install "ndk;${ANDROID_NDK_VERSION}"
+          for attempt in 1 2 3; do
+            echo "Installing Android NDK ${ANDROID_NDK_VERSION} (attempt ${attempt})"
+            if "${SDKMANAGER}" --install "ndk;${ANDROID_NDK_VERSION}"; then
+              test -d "${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}"
+              exit 0
+            fi
+            rm -rf "${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" "${ANDROID_HOME}/.temp"
+            sleep 10
+          done
+          echo "Failed to install Android NDK ${ANDROID_NDK_VERSION}" >&2
+          exit 1
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -120,12 +146,12 @@ jobs:
         id: build-apk
         working-directory: ./app-repo/android
         env:
-          GRADLE_OPTS: -Dorg.gradle.jvmargs="-Xmx6144m -XX:MaxMetaspaceSize=1536m -Dfile.encoding=UTF-8"
+          GRADLE_OPTS: -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8"
           NODE_ENV: production
         run: |
           echo "org.gradle.caching=true" >> gradle.properties
           echo "android.enablePngCrunchInReleaseBuilds=false" >> gradle.properties
-          ./gradlew assembleRelease --build-cache --max-workers=4 -PreactNativeArchitectures=arm64-v8a -Dorg.gradle.parallel=true -x lintVitalRelease -x lintVitalAnalyzeRelease
+          ./gradlew assembleRelease --build-cache --no-daemon --max-workers=2 -PreactNativeArchitectures=arm64-v8a -Dorg.gradle.parallel=false -x lintVitalRelease -x lintVitalAnalyzeRelease
           echo "Gradle compilation complete."
 
       - name: Upload APK to S3
@@ -137,7 +163,7 @@ jobs:
           node scripts/upload-apk.js ${{ steps.set-env.outputs.env_arg }}
 
       - name: Publish App Release Metadata
-        if: env.APP_RELEASE_PUBLISH_TOKEN != ''
+        if: env.APP_RELEASE_PUBLISH_TOKEN != ""
         working-directory: ./app-repo
         env:
           APP_RELEASE_API_BASE_URL: ${{ secrets.EXPO_PUBLIC_BASE_API_URL }}
@@ -147,7 +173,7 @@ jobs:
           node scripts/publish-app-release.js ${{ steps.set-env.outputs.env_arg }}
 
       - name: Upload APK as Artifact
-        if: always() && steps.build-apk.outcome == 'success'
+        if: always() && steps.build-apk.outcome == "success"
         uses: actions/upload-artifact@v4
         with:
           name: app-release-${{ steps.set-env.outputs.env_arg }}.apk
