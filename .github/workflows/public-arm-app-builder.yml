@@ -30,7 +30,7 @@ jobs:
 
       - name: Clone private app repository
         env:
-          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          PRIVATE_REPO_TOKEN: ${{ secrets.APP_REPO_TOKEN || secrets.PRIVATE_REPO_TOKEN }}
         run: |
           git clone https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/dev-studios075/fleetcodes-onboard-app.git app-repo
           cd app-repo
