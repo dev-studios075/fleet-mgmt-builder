@@ -183,7 +183,7 @@ jobs:
           node scripts/upload-apk.js ${{ steps.set-env.outputs.env_arg }}
 
       - name: Publish App Release Metadata
-        if: env.APP_RELEASE_PUBLISH_TOKEN != ''
+        if: ${{ secrets.APP_RELEASE_PUBLISH_TOKEN != '' }}
         working-directory: ./app-repo
         env:
           APP_RELEASE_API_BASE_URL: ${{ secrets.EXPO_PUBLIC_BASE_API_URL }}
