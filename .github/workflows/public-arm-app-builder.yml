@@ -23,6 +23,8 @@ jobs:
     name: Build & Upload Android APK
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      APP_RELEASE_PUBLISH_TOKEN: ${{ secrets.APP_RELEASE_PUBLISH_TOKEN }}
 
     steps:
       - name: Checkout public builder repo
@@ -183,7 +185,7 @@ jobs:
           node scripts/upload-apk.js ${{ steps.set-env.outputs.env_arg }}
 
       - name: Publish App Release Metadata
-        if: ${{ secrets.APP_RELEASE_PUBLISH_TOKEN != '' }}
+        if: env.APP_RELEASE_PUBLISH_TOKEN != ''
         working-directory: ./app-repo
         env:
           APP_RELEASE_API_BASE_URL: ${{ secrets.EXPO_PUBLIC_BASE_API_URL }}
