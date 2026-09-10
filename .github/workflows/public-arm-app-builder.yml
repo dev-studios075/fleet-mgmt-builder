@@ -137,6 +137,20 @@ jobs:
           echo "Failed to install Android NDK ${ANDROID_NDK_VERSION}" >&2
           exit 1
 
+      - name: Setup ccache
+        run: |
+          sudo apt-get update && sudo apt-get install -y ccache
+          echo "CCACHE_DIR=/home/runner/.ccache" >> $GITHUB_ENV
+          echo "CCACHE_MAXSIZE=2G" >> $GITHUB_ENV
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/.ccache
+          key: ccache-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ runner.os }}-
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -146,12 +160,19 @@ jobs:
         id: build-apk
         working-directory: ./app-repo/android
         env:
-          GRADLE_OPTS: -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8"
+          GRADLE_OPTS: -Dorg.gradle.jvmargs="-Xmx3584m -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8"
           NODE_ENV: production
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
         run: |
           echo "org.gradle.caching=true" >> gradle.properties
+          echo "org.gradle.parallel=true" >> gradle.properties
           echo "android.enablePngCrunchInReleaseBuilds=false" >> gradle.properties
-          ./gradlew assembleRelease --build-cache --no-daemon --max-workers=2 -PreactNativeArchitectures=arm64-v8a -Dorg.gradle.parallel=false -x lintVitalRelease -x lintVitalAnalyzeRelease
+          echo "android.packagingOptions.doNotStrip=**/*.so" >> gradle.properties
+          ccache -z || true
+          ./gradlew assembleRelease --build-cache --no-daemon --max-workers=2 -PreactNativeArchitectures=arm64-v8a -x lintVitalRelease -x lintVitalAnalyzeRelease
+          echo "=== ccache statistics ==="
+          ccache -s || true
           echo "Gradle compilation complete."
 
       - name: Upload APK to S3
